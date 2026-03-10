@@ -1,24 +1,27 @@
 #pragma once
 
+#include <cstddef>
 #include <initializer_list>
 #include <iostream>
+#include <memory>
 #include <utility>
 
 namespace fi {
-  template <class T>
+  template <class T, class Allocator = std::allocator<T>>
   class vec {
   public:
     vec() : count(0), containerCapacity(0), container(nullptr) {}
 
     vec(size_t n) : count(0), containerCapacity(n) {
-      container = new T[n];
+      container = static_cast<T*>(::operator new(n * sizeof(T)));
     }
 
-    vec(size_t n, T value) : containerCapacity(n) {
-      container = new T[n];
+    vec(size_t n, T value) : count(n) {
+      containerCapacity = static_cast<int>(n * 1.5);
+      container = static_cast<T*>(::operator new(containerCapacity * sizeof(T)));
 
       for (size_t i = 0; i < n; i++) 
-        container[i] = value;
+        ::new (container + i) T(value);
 
       count = n;
     }
@@ -26,34 +29,39 @@ namespace fi {
     vec(const std::initializer_list<T>& elements) {
       count = elements.size();
       containerCapacity = (containerCapacity == 0) ? 1 : static_cast<size_t>(count * 1.5);
-      container = new T[containerCapacity];
+      container = static_cast<T*>(::operator new(containerCapacity * sizeof(T)));
 
       const T* ptr = elements.begin();
 
       for (size_t i = 0; i < elements.size(); i++)
-        container[i] = ptr[i];
+        ::new (container + i) T(ptr[i]);
     }
 
     vec(const vec& other) : count(other.count), containerCapacity(other.containerCapacity) {
-      container = new T[containerCapacity];
+      container = static_cast<T*>(::operator new(containerCapacity * sizeof(T)));
       for (size_t i = 0; i < count; i++)
-        container[i] = other.container[i];
+        ::new (container + i) T(other.container[i]);
     }
 
     void push_back(T element) {
       if ((count + 1) >= containerCapacity) {
         containerCapacity = static_cast<size_t>(containerCapacity * 1.5);
-        T *newContainer = new T[containerCapacity];
+
+        T *newContainer = static_cast<T*>(::operator new(containerCapacity * sizeof(T)));
 
         for (size_t i = 0; i < count; i++) {
-          newContainer[i] = container[i];
+          ::new (newContainer + i) T(std::move(container[i]));
         }
 
-        delete[] container;
+        for (size_t i = 0; i < count; i++) {
+          container[i].~T();
+        }
+        ::operator delete(container);
+
         container = newContainer;
       }
 
-      container[count++] = element;
+      ::new (container + count++) T(std::move(element));
     }
 
     T& at(const size_t index) {
@@ -104,7 +112,10 @@ namespace fi {
     }
 
   ~vec() {
-    delete[] container;
+    for (size_t i = 0; i < count; i++) {
+      container[i].~T();
+    }
+    ::operator delete(container);
   }
 
   private:
